@@ -1,0 +1,11 @@
+# Node modules
+node_modules/
+
+# ML data
+ml/data/
+
+# logs
+*.log
+
+# env
+.env
