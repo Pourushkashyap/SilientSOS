@@ -59,18 +59,17 @@ if __name__ == '__main__':
     print(f"X_train shape: {X_train.shape}")
     print(f"Class distribution: {np.bincount(y_train)}")
     
-    # Save processed feature vectors
-   # 📁 Save inside data folder
-BASE_DIR = os.path.dirname(__file__)
-SAVE_DIR = os.path.join(BASE_DIR, 'data')
+    # 📁 Save inside data folder
+    BASE_DIR = os.path.dirname(__file__)
+    SAVE_DIR = os.path.join(BASE_DIR, 'data')
 
-# create folder if not exists
-os.makedirs(SAVE_DIR, exist_ok=True)
+    # create folder if not exists
+    os.makedirs(SAVE_DIR, exist_ok=True)
 
-np.save(os.path.join(SAVE_DIR, 'X_train.npy'), X_train)
-np.save(os.path.join(SAVE_DIR, 'X_test.npy'), X_test)
-np.save(os.path.join(SAVE_DIR, 'y_train.npy'), y_train)
-np.save(os.path.join(SAVE_DIR, 'y_test.npy'), y_test)
+    np.save(os.path.join(SAVE_DIR, 'X_train.npy'), X_train)
+    np.save(os.path.join(SAVE_DIR, 'X_test.npy'), X_test)
+    np.save(os.path.join(SAVE_DIR, 'y_train.npy'), y_train)
+    np.save(os.path.join(SAVE_DIR, 'y_test.npy'), y_test)
 
-print(f"✅ Saved in: {SAVE_DIR}")
-print("Preprocessing complete!")
+    print(f"✅ Saved in: {SAVE_DIR}")
+    print("Preprocessing complete!")

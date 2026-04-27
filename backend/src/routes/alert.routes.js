@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const alertController = require('../controllers/alert.controller');
 
-router.post('/', alertController.handleEmergencyAlert);
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+
+router.post('/', upload.single('audio'), alertController.handleEmergencyAlert);
 
 module.exports = router;

@@ -7,17 +7,27 @@ const initiateSocket = require('./src/services/socket.service');
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
-// Initialize Socket.io
+// Socket init
 initiateSocket(server);
 
-// Database Connection
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log("Connected to MongoDB");
-    server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error("MongoDB connection error:", err);
-  });
+// MongoDB connect
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log("✅ Connected to MongoDB"))
+.catch((err) => console.error("❌ MongoDB error:", err));
+
+// Always start server
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
+
+// Crash handlers
+process.on('uncaughtException', (err) => {
+  console.log("💥 Uncaught Exception:", err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.log("💥 Unhandled Rejection:", err);
+});
