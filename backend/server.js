@@ -19,8 +19,8 @@ mongoose.connect(process.env.MONGODB_URI, {
 .catch((err) => console.error("❌ MongoDB error:", err));
 
 // Always start server
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 // Crash handlers

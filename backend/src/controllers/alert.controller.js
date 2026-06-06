@@ -1,4 +1,3 @@
-const { uploadAudio } = require('../services/upload.service');
 const EmailService = require('../services/email.service');
 const { getIo } = require('../services/socket.service');
 const Alert = require('../models/Alert.model');
@@ -7,129 +6,197 @@ const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
 
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
+
+const convertToWav = (inputPath, outputPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioCodec('pcm_s16le')
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .format('wav')
+      .on('end', () => {
+        console.log("✅ WAV created:", outputPath);
+        resolve(outputPath);
+      })
+      .on('error', (err) => {
+        console.log("❌ FFmpeg error:", err.message);
+        reject(err);
+      })
+      .save(outputPath);
+  });
+};
+
 exports.handleEmergencyAlert = async (req, res) => {
+  let wavPath = null;
+  let audioPath = null;
+
   try {
-    // 🔥 multer se file aayegi
     const audioFile = req.file;
 
-    const gpsLat = req.body.gpsLat;
-    const gpsLng = req.body.gpsLng;
-    const timestamp = req.body.timestamp;
-    const deviceId = req.body.deviceId;
+    if (!audioFile) {
+      return res.status(400).json({ error: "Audio file required" });
+    }
 
-    // 📧 contacts parse kar
+    audioPath = audioFile.path;
+
+    const gpsLat = parseFloat(req.body.gpsLat) || 0;
+    const gpsLng = parseFloat(req.body.gpsLng) || 0;
+    const timestamp = req.body.timestamp;
+    const deviceId = req.body.deviceId || 'unknown';
+    const isTest = req.body.isTest === 'true';
+
+    // ✅ Parse contacts carefully
     let contacts = [];
     try {
-      contacts = JSON.parse(req.body.contacts);
-    } catch {
+      const raw = req.body.contacts;
+      console.log("📋 Raw contacts received:", raw);
+      contacts = JSON.parse(raw || "[]");
+      console.log("📋 Parsed contacts:", contacts);
+    } catch (e) {
+      console.log("❌ Failed to parse contacts:", e.message);
       contacts = [];
     }
 
-    console.log("🎧 Audio received:", audioFile?.path);
+    // Filter valid emails
+    const validEmails = contacts.filter(e => e && /\S+@\S+\.\S+/.test(e));
+    console.log("📧 Valid emails to notify:", validEmails);
 
-    // 1️⃣ Upload audio (optional S3)
-    let audioUrl = null;
-    if (audioFile) {
-      audioUrl = audioFile.path; // abhi local use kar
+    if (validEmails.length === 0) {
+      console.log("⚠️ No valid email contacts found — check app settings");
     }
 
-    // 2️⃣ Find nearest NGO
+    // Verify Gmail connection on first alert
+    await EmailService.verifyConnection();
+
+    // Convert to WAV
+    wavPath = audioPath + ".wav";
+    await convertToWav(audioPath, wavPath);
+
+    // Find nearest NGO
     let nearestNgo = null;
-    if (gpsLat && gpsLng) {
-      nearestNgo = await NGO.findOne({
-        location: {
-          $near: {
-            $geometry: { type: 'Point', coordinates: [parseFloat(gpsLng), parseFloat(gpsLat)] },
-            $maxDistance: 50000
+    try {
+      if (gpsLat && gpsLng) {
+        nearestNgo = await NGO.findOne({
+          location: {
+            $near: {
+              $geometry: { type: 'Point', coordinates: [gpsLng, gpsLat] },
+              $maxDistance: 50000
+            }
           }
+        });
+      }
+    } catch (ngoErr) {
+      console.log("⚠️ NGO search failed (non-critical):", ngoErr.message);
+    }
+
+    // ML call — skip for test alerts
+    let danger = isTest ? true : true;
+
+    if (!isTest) {
+      try {
+        const formData = new FormData();
+        formData.append('audio', fs.createReadStream(wavPath), {
+          filename: 'audio.wav',
+          contentType: 'audio/wav'
+        });
+
+        const mlResponse = await axios.post(
+          "http://192.168.1.87:8000/predict",  // your ML server
+          formData,
+          { headers: formData.getHeaders(), timeout: 10000 }
+        );
+
+        console.log("🧠 ML RESPONSE:", mlResponse.data);
+        danger = mlResponse.data?.danger ?? true;
+
+      } catch (mlErr) {
+        console.log("⚠️ ML ERROR (defaulting danger=true):", mlErr.message);
+        danger = true;
+      }
+    }
+
+    // Safe — stop
+    if (!danger) {
+      console.log("✅ SAFE → No alert sent");
+      fs.unlink(audioPath, () => {});
+      fs.unlink(wavPath, () => {});
+      return res.status(200).json({ message: "Safe" });
+    }
+
+    console.log("🚨 DANGER DETECTED — sending alerts to:", validEmails);
+
+    // Build message
+    const googleMapsLink = `https://maps.google.com/?q=${gpsLat},${gpsLng}`;
+    const message = `🚨 EMERGENCY ALERT 🚨
+
+Someone needs help!
+
+📍 Location: ${googleMapsLink}
+
+⚠️ AI detected potential danger in the audio recording.
+${isTest ? '\n[THIS IS A TEST ALERT]' : ''}
+
+Please respond immediately!`;
+
+    // Send emails — wait for ALL to finish before deleting audio
+    if (validEmails.length > 0) {
+      console.log(`📧 Sending ${validEmails.length} email(s)...`);
+
+      const emailResults = await Promise.allSettled(
+        validEmails.map(email =>
+          EmailService.sendEmail(email, "🚨 SOS ALERT", message, wavPath)
+        )
+      );
+
+      emailResults.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          console.log(`✅ Email ${i + 1} sent to ${validEmails[i]}`);
+        } else {
+          console.log(`❌ Email ${i + 1} failed to ${validEmails[i]}:`, result.reason?.message);
         }
       });
     }
 
-    // 🧠 3️⃣ CALL ML MODEL (REAL FILE SEND)
-    let danger = true; // fallback
-
+    // Socket update
     try {
-      const formData = new FormData();
-      formData.append('audio', fs.createReadStream(audioFile.path));
-
-      const mlResponse = await axios.post(
-        "http://127.0.0.1:8000/predict",
-        formData,
-        {
-          headers: formData.getHeaders()
-        }
-      );
-
-      const { confidence, danger: mlDanger } = mlResponse.data;
-
-      console.log("🧠 ML Confidence:", confidence);
-      console.log("🚨 Danger:", mlDanger);
-
-      danger = mlDanger;
-
-    } catch (mlErr) {
-      console.log("⚠️ ML failed:", mlErr.message);
+      const io = getIo();
+      io.to(deviceId).emit('location_update', {
+        lat: gpsLat, lng: gpsLng, timestamp, alertId: deviceId
+      });
+    } catch (socketErr) {
+      console.log("⚠️ Socket error (non-critical):", socketErr.message);
     }
 
-    // ❌ STOP if safe
-    if (!danger) {
-      console.log("✅ SAFE - No alert sent");
-      return res.status(200).json({ message: "Safe" });
+    // Save to DB
+    try {
+      const alertLog = new Alert({
+        deviceId,
+        location: { type: 'Point', coordinates: [gpsLng, gpsLat] },
+        deviceTimestamp: timestamp,
+        s3AudioUrl: audioPath,
+        nearestNgoNotified: nearestNgo ? nearestNgo._id : null,
+        contactsNotified: validEmails,
+        status: 'sent'
+      });
+      await alertLog.save();
+      console.log("💾 Alert saved to DB");
+    } catch (dbErr) {
+      console.log("⚠️ DB save failed (non-critical):", dbErr.message);
     }
 
-    // 4️⃣ Prepare message
-    const googleMapsLink = `https://maps.google.com/?q=${gpsLat},${gpsLng}`;
+    // Safe to delete files now — emails already sent
+    fs.unlink(audioPath, () => console.log("🗑️ Audio deleted"));
+    fs.unlink(wavPath, () => console.log("🗑️ WAV deleted"));
 
-    const message = `🚨 EMERGENCY ALERT 🚨
-
-User needs help!
-
-📍 Location:
-${googleMapsLink}
-
-🎧 Audio:
-${audioUrl || "Not available"}
-
-⚠️ AI detected potential danger!
-
-Please respond immediately!`;
-
-    // 5️⃣ Send EMAIL
-    if (contacts.length > 0) {
-      const validEmails = contacts.filter(e => /\S+@\S+\.\S+/.test(e));
-
-      for (let email of validEmails) {
-        await EmailService.sendEmail(email, "🚨 SOS ALERT", message);
-        console.log("📧 Email sent:", email);
-      }
-    }
-
-    // 6️⃣ Socket update
-    const io = getIo();
-    io.to(deviceId).emit('location_update', {
-      lat: gpsLat,
-      lng: gpsLng,
-      timestamp,
-      alertId: deviceId
-    });
-
-    // 7️⃣ Save alert
-    const alertLog = new Alert({
-      deviceId,
-      location: { type: 'Point', coordinates: [gpsLng, gpsLat] },
-      timestamp,
-      s3AudioUrl: audioUrl,
-      nearestNgoNotified: nearestNgo ? nearestNgo._id : null,
-      contactsNotified: contacts
-    });
-
-    await alertLog.save();
-
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, notified: validEmails.length });
 
   } catch (error) {
-    console.error("❌ Error:", error);
-    return res.status(500).json({ success: false });
+    console.error("❌ ALERT ERROR:", error);
+    if (audioPath) fs.unlink(audioPath, () => {});
+    if (wavPath) fs.unlink(wavPath, () => {});
+    return res.status(500).json({ success: false, error: error.message });
   }
 };

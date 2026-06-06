@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import BackgroundServiceManager from '../services/BackgroundService';
+import { stopListening } from '../services/BackgroundService'; // FIX Bug 5: named import
 import { checkSequence } from '../utils/SecretCode';
 import { useRouter } from 'expo-router';
 
@@ -12,16 +12,13 @@ export default function CalculatorScreen() {
   const [firstValue, setFirstValue] = useState('');
   const [keyBuffer, setKeyBuffer] = useState('');
 
- useEffect(() => {
-  
-
-  return () => {
-    BackgroundServiceManager.stop(); // cleanup
-  };
-}, []);
+  useEffect(() => {
+    return () => {
+      stopListening(); // FIX Bug 5: correct named function, no crash on unmount
+    };
+  }, []);
 
   const handleInput = (num, type) => {
-    // Secret code check
     let newBuffer = keyBuffer + num;
     if (newBuffer.length > 10) {
       newBuffer = newBuffer.slice(newBuffer.length - 10);
@@ -33,8 +30,6 @@ export default function CalculatorScreen() {
     if (isSetupCode) {
       setKeyBuffer('');
       setDisplayValue('0');
-
-      // ✅ FIXED NAVIGATION
       router.push("/setup");
       return;
     }
@@ -66,8 +61,8 @@ export default function CalculatorScreen() {
     if (operator === '+') res = a + b;
     else if (operator === '-') res = a - b;
     else if (operator === 'X') res = a * b;
-    else if (operator === '/') res = a / b;
-
+    else if (operator === '/') res = b !== 0 ? a / b : 0; // also fixed divide by zero
+    
     setDisplayValue(res.toString());
     setOperator(null);
     setFirstValue('');
@@ -76,14 +71,16 @@ export default function CalculatorScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.displayContainer}>
-        <Text style={styles.displayText}>{displayValue}</Text>
+        <Text style={styles.displayText} numberOfLines={1} adjustsFontSizeToFit>
+          {displayValue}
+        </Text>
       </View>
 
       <View style={styles.row}>
-        <CalcButton label="C" type="clear" onPress={handleInput} color="#a5a5a5" textColor="#000" />
+        <CalcButton label="C"   type="clear"    onPress={handleInput} color="#a5a5a5" textColor="#000" />
         <CalcButton label="+/-" type="operator" onPress={handleInput} color="#a5a5a5" textColor="#000" />
-        <CalcButton label="%" type="operator" onPress={handleInput} color="#a5a5a5" textColor="#000" />
-        <CalcButton label="/" type="operator" onPress={handleInput} color="#ff9f0a" />
+        <CalcButton label="%"   type="operator" onPress={handleInput} color="#a5a5a5" textColor="#000" />
+        <CalcButton label="/"   type="operator" onPress={handleInput} color="#ff9f0a" />
       </View>
 
       <View style={styles.row}>
@@ -108,9 +105,9 @@ export default function CalculatorScreen() {
       </View>
 
       <View style={styles.row}>
-        <CalcButton label="0" type="number" onPress={handleInput} double />
-        <CalcButton label="." type="number" onPress={handleInput} />
-        <CalcButton label="=" type="equal" onPress={handleInput} color="#ff9f0a" />
+        <CalcButton label="0" type="number"  onPress={handleInput} double />
+        <CalcButton label="." type="number"  onPress={handleInput} />
+        <CalcButton label="=" type="equal"   onPress={handleInput} color="#ff9f0a" />
       </View>
     </SafeAreaView>
   );
@@ -120,6 +117,7 @@ const CalcButton = ({ label, onPress, type, color = '#333333', textColor = '#fff
   <TouchableOpacity
     style={[styles.button, { backgroundColor: color, flex: double ? 2.15 : 1 }]}
     onPress={() => onPress(label, type)}
+    activeOpacity={0.7}
   >
     <Text style={[styles.buttonText, { color: textColor }]}>{label}</Text>
   </TouchableOpacity>

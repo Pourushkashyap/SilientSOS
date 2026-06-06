@@ -5,7 +5,6 @@ const AlertSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-
   location: {
     type: {
       type: String,
@@ -13,27 +12,26 @@ const AlertSchema = new mongoose.Schema({
       default: 'Point'
     },
     coordinates: {
-      type: [Number], // [lng, lat]
+      type: [Number],
       required: true
     }
   },
-
-  // ❌ remove manual timestamp (mongoose already adds createdAt)
-  
+  // FIX Bug 5: renamed to deviceTimestamp to avoid clash with mongoose timestamps option
+  deviceTimestamp: {
+    type: String,
+    default: null
+  },
   s3AudioUrl: {
     type: String,
     default: null
   },
-
   nearestNgoNotified: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'NGO',
     default: null
   },
-
-  // ✅ renamed for clarity (email system)
   contactsNotified: {
-    type: [String], // emails
+    type: [String],
     validate: {
       validator: function (emails) {
         return emails.every(email => /\S+@\S+\.\S+/.test(email));
@@ -41,19 +39,15 @@ const AlertSchema = new mongoose.Schema({
       message: "Invalid email format"
     }
   },
-
-  // 🔥 NEW (VERY IMPORTANT)
   status: {
     type: String,
     enum: ['pending', 'sent', 'failed'],
     default: 'pending'
   }
-
 }, {
-  timestamps: true // adds createdAt & updatedAt
+  timestamps: true
 });
 
-// 🔥 GEO INDEX (important for NGO search)
 AlertSchema.index({ location: '2dsphere' });
 
 module.exports = mongoose.model('Alert', AlertSchema);
