@@ -1,57 +1,115 @@
-# SilentSOS
+# SilentSOS 🚨
 
-SilentSOS is a comprehensive domestic violence safety application disguised as a normal calculator. It continuously runs a stealth background service to analyze ambient audio on-device using machine learning, instantly dispatching SOS alerts to pre-configured contacts and NGOs when distress is detected.
+A women's safety app disguised as a calculator. It silently monitors audio in the background, detects distress using an AI model, and sends SOS emails with a live GPS location and audio recording to trusted contacts.
 
-## Features
-- **Stealth UI**: Fully functional calculator app.
-- **Background Persistence**: Android foreground service capturing audio 24/7 without draining battery heavily.
-- **On-Device Inference**: TensorFlow.js running directly on the mobile device. No audio leaves the phone unless an alert is fired.
-- **BiLSTM Stress Classifier**: Detects angry or fearful vocal patterns.
-- **CNN Keyword Spotter**: Detects words like 'stop', 'help', 'no'.
-- **Threat Fusion Scoring**: Combines ML results, GPS accuracy, and context to minimize false positives.
-- **Web Dashboard**: Live socket tracking for emergency contacts using Leaflet maps.
+---
 
-## Project Structure
-- `mobile/` - React Native application.
-- `backend/` - Node.js + Express backend.
-- `ml/` - Python ML training pipeline.
-- `dashboard/` - React Vite Web Dashboard.
+## Stack
 
-## Setup Instructions
+| Layer | Tech |
+|-------|------|
+| Mobile | React Native, Expo |
+| Backend | Node.js, Express, MongoDB |
+| ML Server | Python, Flask, TensorFlow |
+| Email | Nodemailer + Gmail |
+| Audio | FFmpeg, librosa, expo-av |
 
-### 1. Backend Server
+---
+
+## Prerequisites
+
+- Node.js v18+, Python 3.9+, MongoDB
+- [FFmpeg](https://www.gyan.dev/ffmpeg/builds/) added to system PATH
+- [Expo Go](https://expo.dev/go) on your phone
+- Phone and PC on the **same WiFi**
+
+---
+
+## Setup
+
+**1. Set your PC's local IP in `SilentSOS/src/config/api.js`**
+```javascript
+export const API_CONFIG = {
+  BASE_URL: "http://YOUR_PC_IP:5000",
+  ML_URL:   "http://YOUR_PC_IP:8000/predict",
+};
+```
+Find your IP with `ipconfig` (Windows) → look for **IPv4 Address** under Wi-Fi.
+
+**2. Backend — create `backend/.env`**
+```env
+PORT=5000
+MONGODB_URI=mongodb://localhost:27017/silentsos
+EMAIL_USER=yourgmail@gmail.com
+EMAIL_PASS=xxxx xxxx xxxx xxxx
+```
+> `EMAIL_PASS` must be a **Gmail App Password** — Google Account → Security → 2-Step Verification → App Passwords → Generate.
+
+**3. Install dependencies**
 ```bash
-cd backend
-npm install
-# Copy .env.example to .env and configure keys
-npm run start
+cd backend && npm install
+cd ml     && pip install flask tensorflow librosa numpy pydub ffmpeg-python
+cd SilentSOS && npm install
 ```
 
-### 2. ML Pipeline
+---
+
+## Running
+
+Open 4 terminals and run each:
+
 ```bash
-cd ml
-pip install -r requirements.txt
-# Download RAVDESS & CREMA-D into data/
-python preprocess.py
-python train_stress_model.py
-python train_keyword_model.py
-python export_to_tfjs.py
-# Models are exported directly to mobile/src/models/
+# Terminal 1 — Database
+mongod
+
+# Terminal 2 — Backend
+cd backend && node server.js
+
+# Terminal 3 — ML server
+cd ml && python api.py
+
+# Terminal 4 — Mobile app
+cd SilentSOS && npx expo start
 ```
 
-### 3. Mobile App
-```bash
-cd mobile
-npm install
-# Ensure you are on Android SDK or connect an emulator
-npx react-native run-android
+Scan the QR code with Expo Go on your phone.
+
+---
+
+## First use
+
+1. Open the app — it looks like a calculator
+2. Enter the **secret code** to reveal the hidden setup screen
+3. Login with PIN (default: `1234`)
+4. Add up to 3 trusted email addresses
+5. Tap **Save Settings**
+6. Tap **Start Smart Listening** to activate monitoring
+7. Tap **Test Dummy Alert** to verify emails work
+
+---
+
+## How it works
+
+```
+Mic → 2s audio clip → ML model → danger? → SOS email + GPS to contacts
 ```
 
-### 4. Web Dashboard
-```bash
-cd dashboard
-npm install
-npm run dev
-```
+Every 5 seconds the app records a short clip and sends it to the ML server. The model extracts audio features (MFCC, pitch, energy) and runs them through a Bidirectional LSTM trained on the RAVDESS emotion dataset. If danger is detected (confidence > 0.6), an SOS email is sent with the audio recording attached and a Google Maps location link.
 
-*Note: Due to the complexity of the sensor APIs, some parts of this system (like BackgroundServices and hardware VAD) need a physical device for accurate testing.*
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Network Error on first request | Handled automatically with retry — ignore it |
+| Emails not sending | Use Gmail App Password, not your regular password |
+| ML server 500 error | Run `ffmpeg -version` to confirm FFmpeg is in PATH |
+| App can't reach backend | Check IP in `api.js` matches `ipconfig` output |
+| MongoDB connection failed | Run `mongod` or whitelist your IP in Atlas |
+
+---
+
+## License
+
+MIT
